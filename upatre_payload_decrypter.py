@@ -8,10 +8,17 @@ http://www.johannesbader.ch/2015/06/Win32-Upatre-BI-Part-4-Payload-Format/
 
 """
 import os
+import sys
 import struct
 import signal
 import argparse
 import libs.lznt1
+
+if sys.version_info[0] != 2:
+    print("only runs with Python 2.x")
+    quit()
+
+
 
 def _p(field, value):
     if type(value) == int:
