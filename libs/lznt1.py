@@ -23,7 +23,7 @@
 
 import struct
 import sys
-from c2utils import unpack_from
+from libs.c2utils import unpack_from
 
 class lznt1Error(Exception):
     def __init__(self, value):

@@ -56,13 +56,12 @@ def rol_reverse(size_key):
     keys = [k, k + 0x00001000, k + 0x10000000, k + 0x10001000]
     return keys
 
-def decrypt(c, key, ksa):
+def decrypt(c, key, ksa, check_key=None):
     p = c[0:4]
     for i in range(4,len(c), 4):
         if len(c[i:i+4]) == 4:
             enc = struct.unpack('I', c[i:i+4])[0]
             dec = enc ^ key
-            #print(i, hex(key), hex(enc), hex(dec))
             p += struct.pack('I', dec)
             if ksa == "rol":
                 key = rol(key, 1)
@@ -72,6 +71,11 @@ def decrypt(c, key, ksa):
                 key = (key - 1) & 0xFFFFFFFF 
             elif ksa == "dec2":
                 key = (key - 2) & 0xFFFFFFFF 
+            elif ksa == "chk":
+                key = (key + check_key) & 0xFFFFFFFF
+            else:
+                print("invalid ksa: {}".format(ksa))
+                quit()
     return p
 
 def handler(signum, frame):
@@ -86,7 +90,7 @@ def decompress(p, old):
     else:
         offset_data = struct.unpack('H', p[0xC:0xE])[0]
         compressed_size = struct.unpack('I', p[0xE:0x12])[0]
-    unc = lznt1.dCompressBuf(p[offset_data:offset_data + compressed_size])
+    unc = libs.lznt1.dCompressBuf(p[offset_data:offset_data + compressed_size])
     return unc
 
 def offset_check(p):
@@ -111,14 +115,16 @@ def find_keys(c, enc_file):
     keys['rol'] = rol_reverse(size_key)
     return keys
 
-def crack_payload(enc_file, key, ksa, old):
+def crack_payload(enc_file, key, check_key, ksa, old):
     with open(enc_file, 'rb') as r:
         c = r.read()
 
     if key and ksa:
-        keys = {ksa: key}
+        keys = {ksa: [key]}
     elif key:
-        keys = {'inc': [key], 'dec': [key], 'dec2': [key], 'rol': [key]}
+        keys = {}
+        for ksa in ['inc', 'dec', 'dec2', 'rol', 'chk']:
+            keys[ksa] = [key]
     else:
         keys = find_keys(c, enc_file)
 
@@ -126,41 +132,43 @@ def crack_payload(enc_file, key, ksa, old):
     for ksa, tkeys in keys.items():
         for key in tkeys:
             _p("key (with ksa = {})".format(ksa), key)
-            p = decrypt(c, key, ksa)
+            p = decrypt(c, key, ksa, check_key)
             s = 1 if old else offset_check(p)
             if not s:
                 print(" -> invalid offsets")
                 continue
+
+
+            unc = decompress(p, old)
             try:
-                global timeout
-                timeout = False
-                signal.signal(signal.SIGALRM, handler)
-                signal.alarm(1)
                 unc = decompress(p, old)
-                if timeout:
-                    raise Exception("timeout")
             except Exception as e:
-                print("  -> decompression error {}".format(e))
+                print("  -> decompression failed {}".format(e))
                 continue
-            if unc[0:2] == "MZ":
+            if unc[0:2] == "MZ": 
                 print("  -> begins with MZ header, this is it!")
                 out_file = "decrypted_" + enc_file
                 with open(out_file, "wb") as w:
-                    w.write(unc)
+                    w.write(bytes(unc))
                 print("  -> written decrypted exe to: {}".format(out_file))
                 _p("  -> decrypt_key", key)
                 _p("  -> ksa", ksa)
                 _p("  -> check_key", struct.unpack("I", p[4:8])[0])
                 _p("  -> stub entry", struct.unpack("H", p[8:0xA])[0])
-                _p("  -> compressed start", struct.unpack("H", p[0xC:0xE])[0])
-                #_p("  -> compressed size", struct.unpack("H", p[0xE:0x12])[0])
+                _p("  -> com. start", struct.unpack("H", p[0xC:0xE])[0])
+                _p("  -> com. size", struct.unpack("I", p[0xE:0x12])[0])
                 return 1 
+            else:
+                print("  -> file does not start with MZ header")
+                continue
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser("decrypt Upatre payload")
     parser.add_argument("payload_file")
     parser.add_argument("-k", "--key", default="0")
     parser.add_argument("-s", "--ksa")
+    parser.add_argument("-c", "--check_key", default="0")
     parser.add_argument("-o", "--old")
     args = parser.parse_args()
-    crack_payload(args.payload_file, int(args.key, 16), args.ksa, args.old)
+    crack_payload(args.payload_file, int(args.key, 16), int(args.check_key, 16),
+            args.ksa, args.old)
