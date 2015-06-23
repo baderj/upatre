@@ -130,8 +130,10 @@ def crack_payload(enc_file, key, check_key, ksa, old):
         keys = {ksa: [key]}
     elif key:
         keys = {}
-        for ksa in ['inc', 'dec', 'dec2', 'rol', 'chk']:
+        for ksa in ['inc', 'dec', 'dec2', 'rol']:
             keys[ksa] = [key]
+        if check_key:
+            keys['chk'] = [key]
     else:
         keys = find_keys(c, enc_file)
 
